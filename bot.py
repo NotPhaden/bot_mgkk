@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import re
 
 import aiohttp
 import discord
@@ -16,7 +17,7 @@ from dotenv import load_dotenv
 # Build: 4.0.0
 # ============================================================
 
-BOT_VERSION = "6.1.0"
+BOT_VERSION = "6.1.1"
 API_BASE = "https://ps99.biggamesapi.io/v1"
 LEGACY_API_BASE = "https://ps99.biggamesapi.io/api"
 DB_FILE = Path(__file__).with_name("ps99_bot.sqlite3")
@@ -327,48 +328,73 @@ async def api_get_league_rank(points: int, league_id: str | None = None, league_
     if candidate_page is None:
         return None
 
-    # Inspect the candidate and adjacent pages to account for point ties and
-    # API page boundaries. Usually this is only 2–3 requests.
-    for page in range(max(1, candidate_page - 1), min(max_page, candidate_page + 1) + 1):
+    # Inspect the candidate page and expand through any adjacent pages whose
+    # boundary still has the target point value. This keeps normal lookups
+    # small while handling ties that cross multiple page boundaries.
+    checked: set[int] = set()
+
+    async def inspect_page(page: int) -> tuple[bool, int | None, int, int]:
+        if page in checked:
+            return False, None, 0, 0
+        checked.add(page)
         payload = await api_get_json(
             f"{API_BASE}/leagues",
             params={"page": page, "pageSize": page_size, "sort": "Points", "sortOrder": "desc"},
         )
         rows = (payload.get("data") or {}).get("leagues") or []
+        if not rows:
+            return False, None, 0, 0
         for index, row in enumerate(rows):
             if league_id and str(row.get("ID")) == str(league_id):
-                return (page - 1) * page_size + index + 1
+                return True, (page - 1) * page_size + index + 1, int(rows[0].get("Points") or 0), int(rows[-1].get("Points") or 0)
             if league_name and str(row.get("Name", "")).casefold() == league_name.casefold():
-                return (page - 1) * page_size + index + 1
+                return True, (page - 1) * page_size + index + 1, int(rows[0].get("Points") or 0), int(rows[-1].get("Points") or 0)
+        return False, None, int(rows[0].get("Points") or 0), int(rows[-1].get("Points") or 0)
 
-    # If a very large tie spans more than the inspected pages, report the
-    # points-based band position rather than pretending an exact tie order.
+    found, rank, first_points, last_points = await inspect_page(candidate_page)
+    if found:
+        return rank
+
+    left = candidate_page - 1
+    right = candidate_page + 1
+    while left >= 1 or right <= max_page:
+        progressed = False
+        if left >= 1:
+            found, rank, first_points, last_points = await inspect_page(left)
+            if found:
+                return rank
+            if last_points == points or first_points == points:
+                progressed = True
+                left -= 1
+            else:
+                left = 0
+
+        if right <= max_page:
+            found, rank, first_points, last_points = await inspect_page(right)
+            if found:
+                return rank
+            if first_points == points or last_points == points:
+                progressed = True
+                right += 1
+            else:
+                right = max_page + 1
+
+        if not progressed:
+            break
+
     return None
 
 
-async def db_get_active_clan(clan_name: str) -> dict[str, Any] | None:
-    """Read the clan's public BIG Games DB page. This is the fallback for clans
-    outside the battle API's top-100 sample. The DB page exposes Active Battle
-    Place and Active Battle Points for the currently active battle.
-    """
-    from urllib.parse import quote
-    url = f"https://db.biggames.io/clans/{quote(clan_name.strip(), safe='')}"
-    timeout = aiohttp.ClientTimeout(total=20)
-    headers = {"User-Agent": f"PS99-Discord-Bot/{BOT_VERSION}"}
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(url, headers=headers, allow_redirects=True) as response:
-            if response.status != 200:
-                return None
-            html = await response.text()
-
+def parse_db_active_clan_html(clan_name: str, html: str, url: str) -> dict[str, Any] | None:
+    """Parse active-battle rank/points from the public BIG Games DB page."""
     import html as html_lib
-    from re import search
+
     text_content = html_lib.unescape(re.sub(r"<[^>]+>", " ", html))
     text_content = re.sub(r"\s+", " ", text_content).strip()
 
-    place_match = search(r"Active Battle Place\s*#?([0-9][0-9,]*)", text_content, re.I)
-    points_match = search(r"Active Battle Points\s*([0-9][0-9,]*)", text_content, re.I)
-    live_match = search(r"Live\s*[·•]\s*([^ ]+)", text_content, re.I)
+    place_match = re.search(r"Active Battle Place\s*#?([0-9][0-9,]*)", text_content, re.I)
+    points_match = re.search(r"Active Battle Points\s*([0-9][0-9,]*)", text_content, re.I)
+    live_match = re.search(r"Live\s*[·•]\s*([^ ]+)", text_content, re.I)
     if not place_match and not points_match:
         return None
 
@@ -382,8 +408,30 @@ async def db_get_active_clan(clan_name: str) -> dict[str, Any] | None:
     }
 
 
+async def db_get_active_clan(clan_name: str) -> dict[str, Any] | None:
+    """Read the clan's public BIG Games DB page as a fallback for rank/points."""
+    from urllib.parse import quote
+
+    clean_name = clan_name.strip()
+    url = f"https://db.biggames.io/clans/{quote(clean_name, safe='')}"
+    timeout = aiohttp.ClientTimeout(total=20)
+    headers = {"User-Agent": f"PS99-Discord-Bot/{BOT_VERSION}"}
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with session.get(url, headers=headers, allow_redirects=True) as response:
+            if response.status != 200:
+                return None
+            html = await response.text()
+
+    return parse_db_active_clan_html(clean_name, html, url)
+
+
 async def api_get_player(username: str) -> dict[str, Any]:
-    url = f"{API_BASE}/players/{username}"
+    from urllib.parse import quote
+
+    clean_username = username.strip()
+    if not clean_username:
+        raise ValueError("Roblox username cannot be empty.")
+    url = f"{API_BASE}/players/{quote(clean_username, safe='')}"
     timeout = aiohttp.ClientTimeout(total=25)
 
     async with aiohttp.ClientSession(timeout=timeout) as session:

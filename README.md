@@ -2,7 +2,7 @@
 
 A feature-rich Discord bot for **Pet Simulator 99 (PS99)** powered by the public **BIG Games API**.
 
-> **Current version: 6.1.0**
+> **Current version: 6.1.1**
 
 The bot combines Roblox account linking, PS99 inventory lookup, Space Forge tracking, Clan Battle monitoring, and full PS99 League lookup in one Discord application.
 
@@ -49,7 +49,7 @@ When configured, the monitor:
 
 The official battle leaderboard endpoint exposes the top 100 clans. For clans outside that API sample, the bot can fall back to the public BIG Games clan database page to retrieve the active battle rank and points when available.
 
-### 🏅 League lookup — NEW in 6.1.0
+### 🏅 League lookup — NEW in 6.1.1
 
 `/league name:<league>` searches PS99 leagues and displays league details including:
 
@@ -91,7 +91,12 @@ PS99-Discord-Bot/
 ├── README.md
 ├── bot.py
 ├── recipes.json
-└── requirements.txt
+├── requirements.txt
+├── requirements-dev.txt
+├── pytest.ini
+└── tests/
+    ├── conftest.py
+    └── test_bot.py
 ```
 
 ### Files that are intentionally NOT in Git
@@ -198,7 +203,7 @@ Compile-check the bot locally:
 python -m py_compile bot.py
 ```
 
-The repository also includes a GitHub Actions workflow that performs a Python compile check on pushes and pull requests.
+The repository also includes a GitHub Actions workflow that runs compile checks and the automated pytest suite on pushes and pull requests.
 
 ## 📦 Dependencies
 

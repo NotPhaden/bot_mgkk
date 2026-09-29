@@ -56,14 +56,14 @@ def test_command_descriptions_are_present():
 
 
 def test_bot_version():
-    assert bot.BOT_VERSION == "6.1.0"
+    assert bot.BOT_VERSION == "6.1.1"
 
 
 def test_max_crafts():
     assert bot.max_crafts(
         {"A": 10, "B": 7},
         {"A": 2, "B": 3},
-    ) == 3
+    ) == 2
     assert bot.max_crafts({"A": 10}, {"A": 2, "B": 1}) == 0
     assert bot.max_crafts({}, {}) == 0
 
@@ -129,6 +129,16 @@ def test_database_link_and_clan_helpers(tmp_path, monkeypatch):
     assert setting["battle_id"] is None
 
 
+
+
+def test_parse_db_active_clan_html():
+    html = "<html><body>Active Battle Place #12 Active Battle Points 1,234,567 Live · GuildBattle_Test</body></html>"
+    parsed = bot.parse_db_active_clan_html("TestClan", html, "https://db.biggames.io/clans/TestClan")
+    assert parsed["rank"] == 12
+    assert parsed["points"] == 1234567
+    assert parsed["battle"] == "GuildBattle_Test"
+    assert parsed["source"] == "BIG Games DB"
+
 def test_league_api_helpers_are_mockable(monkeypatch):
     calls = []
 
@@ -147,29 +157,35 @@ def test_league_api_helpers_are_mockable(monkeypatch):
     assert calls
 
 
-def test_league_rank_finds_target_on_mocked_page(monkeypatch):
+def test_league_rank_finds_target_on_paginated_leaderboard(monkeypatch):
     async def fake_api_get_json(url, params=None):
         page = int((params or {}).get("page", 1))
-        rows_by_page = {
-            1: [
-                {"ID": "A", "Name": "Alpha", "Points": 900},
-                {"ID": "B", "Name": "Beta", "Points": 800},
-            ],
-            2: [
-                {"ID": "TARGET", "Name": "Target League", "Points": 700},
-                {"ID": "D", "Name": "Delta", "Points": 600},
-            ],
-        }
-        return {"data": {"leagues": rows_by_page.get(page, []), "total": 4}}
+        page_size = int((params or {}).get("pageSize", 100))
+        if page == 1:
+            rows = [
+                {"ID": f"ID-{i}", "Name": f"League {i}", "Points": 1000 - i}
+                for i in range(100)
+            ]
+        elif page == 2:
+            rows = [
+                {"ID": "TARGET", "Name": "Target League", "Points": 700}
+            ] + [
+                {"ID": f"ID-{100 + i}", "Name": f"League {100 + i}", "Points": 699 - i}
+                for i in range(99)
+            ]
+        else:
+            rows = []
+        assert page_size == 100
+        return {"data": {"leagues": rows, "total": 200}}
 
     monkeypatch.setattr(bot, "api_get_json", fake_api_get_json)
 
     rank = run(bot.api_get_league_rank(
         700,
         league_id="TARGET",
-        total=4,
+        total=200,
     ))
-    assert rank == 3
+    assert rank == 101
 
 
 def test_league_command_rejects_empty_search():
