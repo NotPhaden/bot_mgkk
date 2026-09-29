@@ -660,7 +660,7 @@ def trim(text: str, limit: int = 1024) -> str:
 def get_space_mine_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         item for item in items
-        if item["displayName"] in SPACE_MINE_NAMES or item["id"] in SPACE_MINE_NAMES
+        if item.get("displayName") in SPACE_MINE_NAMES or item.get("id") in SPACE_MINE_NAMES
     ]
 
 

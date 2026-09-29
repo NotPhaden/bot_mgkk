@@ -134,7 +134,7 @@ def test_league_api_helpers_are_mockable(monkeypatch):
 
     async def fake_api_get_json(url, params=None):
         calls.append((url, params))
-        if url.endswith("/leagues/Test League"):
+        if "/leagues/Test%20League" in url:
             return {"data": {"Name": "Test League", "Points": 5000, "ID": "L1"}}
         return {"data": {"leagues": [{"Name": "Test League", "Points": 5000, "ID": "L1"}], "total": 1}}
 
@@ -149,20 +149,18 @@ def test_league_api_helpers_are_mockable(monkeypatch):
 
 def test_league_rank_finds_target_on_mocked_page(monkeypatch):
     async def fake_api_get_json(url, params=None):
-        page = int(params.get("page", 1))
-        if page == 1:
-            rows = [
+        page = int((params or {}).get("page", 1))
+        rows_by_page = {
+            1: [
                 {"ID": "A", "Name": "Alpha", "Points": 900},
                 {"ID": "B", "Name": "Beta", "Points": 800},
-            ]
-        elif page == 2:
-            rows = [
+            ],
+            2: [
                 {"ID": "TARGET", "Name": "Target League", "Points": 700},
                 {"ID": "D", "Name": "Delta", "Points": 600},
-            ]
-        else:
-            rows = []
-        return {"data": {"leagues": rows, "total": 4}}
+            ],
+        }
+        return {"data": {"leagues": rows_by_page.get(page, []), "total": 4}}
 
     monkeypatch.setattr(bot, "api_get_json", fake_api_get_json)
 
