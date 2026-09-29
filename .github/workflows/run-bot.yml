@@ -23,4 +23,5 @@ jobs:
       - name: Start bot
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
-      run: python -u bot.py
+          PYTHONUNBUFFERED: "1"
+        run: python -u bot.py
