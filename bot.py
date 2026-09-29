@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 # Build: 4.0.0
 # ============================================================
 
-BOT_VERSION = "6.1.1"
+BOT_VERSION = "6.1.2"
 API_BASE = "https://ps99.biggamesapi.io/v1"
 LEGACY_API_BASE = "https://ps99.biggamesapi.io/api"
 DB_FILE = Path(__file__).with_name("ps99_bot.sqlite3")
@@ -1231,7 +1231,7 @@ async def league(interaction: discord.Interaction, name: str):
         await interaction.response.send_message("❌ League name/search must be 64 characters or fewer.", ephemeral=True)
         return
 
-    await interaction.response.send_message(f"🔎 Searching PS99 leagues for `{query}`...", ephemeral=True)
+    await interaction.response.send_message(f"🔎 Searching PS99 leagues for `{query}`...")
     try:
         matches = await api_search_leagues(query)
         if not matches:
@@ -1257,6 +1257,12 @@ async def league(interaction: discord.Interaction, name: str):
         owner_name = owner.get("DisplayName") if isinstance(owner, dict) else None
         members = detail.get("Members") or []
         member_count = len(members) + (1 if owner else 0)
+        member_names = []
+        for member in members:
+            if isinstance(member, dict):
+                member_names.append(str(member.get("DisplayName") or member.get("UserID") or "Unknown"))
+        if owner_name:
+            member_names.insert(0, owner_name)
         capacity = int(detail.get("MemberCapacity") or selected.get("MemberCapacity") or 4)
 
         embed = discord.Embed(
@@ -1269,6 +1275,8 @@ async def league(interaction: discord.Interaction, name: str):
         embed.add_field(name="👥 Members", value=f"**{member_count}/{capacity}**", inline=True)
         embed.add_field(name="📈 Level", value=f"**{detail.get('Level', selected.get('Level', '—'))}**", inline=True)
         embed.add_field(name="👑 Owner", value=f"**{owner_name or 'Unknown'}**", inline=True)
+        if member_names:
+            embed.add_field(name="👥 Player Names", value=trim("\n".join(f"• **{name}**" for name in member_names), 1024), inline=False)
         embed.add_field(name="🆔 League ID", value=f"`{league_id or '—'}`", inline=False)
 
         contributions = detail.get("PointContributions") or []

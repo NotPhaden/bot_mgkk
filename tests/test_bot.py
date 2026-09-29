@@ -56,7 +56,7 @@ def test_command_descriptions_are_present():
 
 
 def test_bot_version():
-    assert bot.BOT_VERSION == "6.1.1"
+    assert bot.BOT_VERSION == "6.1.2"
 
 
 def test_max_crafts():
@@ -235,6 +235,7 @@ def test_league_command_success_with_mock_api(monkeypatch):
     embed = interaction.edits[-1]["embed"]
     assert embed.title == "🏆 League — Test League"
     assert any(field.name == "🏅 Global Rank" and "#42" in field.value for field in embed.fields)
+    assert any(field.name == "👥 Player Names" and "Owner" in field.value for field in embed.fields)
 
 
 def test_link_inventory_commands_are_registered_separately():
