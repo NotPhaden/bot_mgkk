@@ -23,8 +23,6 @@ DB_FILE = Path(__file__).with_name("ps99_bot.sqlite3")
 
 load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
-if not DISCORD_TOKEN:
-    raise RuntimeError("DISCORD_TOKEN is missing from .env")
 
 # The live Combine-o-Matic ratios are deliberately NOT guessed here.
 # Add verified recipes later when the current in-game machine confirms them.
@@ -1318,6 +1316,8 @@ async def unlinkroblox(interaction: discord.Interaction):
 # ============================================================
 
 if __name__ == "__main__":
+    if not DISCORD_TOKEN:
+        raise RuntimeError("DISCORD_TOKEN is missing from .env")
     print("=" * 64)
     print(f"PS99 Discord Bot v{BOT_VERSION}")
     print("FINAL BUILD — inventory + Space Forge + automatic Clan Battle monitor + item images")
