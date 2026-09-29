@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 # Build: 4.0.0
 # ============================================================
 
-BOT_VERSION = "6.1.2"
+BOT_VERSION = "6.1.3"
 API_BASE = "https://ps99.biggamesapi.io/v1"
 LEGACY_API_BASE = "https://ps99.biggamesapi.io/api"
 DB_FILE = Path(__file__).with_name("ps99_bot.sqlite3")
@@ -874,17 +874,34 @@ def max_crafts(inventory: dict[str, int], recipe: dict[str, int]) -> int:
 # Discord command registration / cleanup
 # ============================================================
 
-async def sync_commands_cleanly():
-    # Global sync overwrites the app's global command list.
-    global_commands = await bot.tree.sync()
-    print(f"Global slash commands synced: {len(global_commands)}")
+async def sync_commands_cleanly(tree=None, guilds=None):
+    """Keep commands guild-scoped and remove stale global duplicates.
 
-    # Guild commands update instantly. Copying our global tree into each guild
-    # and bulk-syncing removes stale guild-scoped commands belonging to THIS app.
-    for guild in bot.guilds:
+    Older builds synced the same command tree globally and to every guild, which
+    makes Discord display two copies of each command. We deliberately delete the
+    application's global command set once, then publish the same command objects
+    only to guilds.
+    """
+    tree = tree or bot.tree
+    guilds = list(bot.guilds if guilds is None else guilds)
+    commands = list(tree.get_commands())
+
+    # Remove any old global commands created by previous releases.
+    tree.clear_commands(guild=None)
+    try:
+        removed_global = await tree.sync()
+        print(f"Global slash commands after cleanup: {len(removed_global)}")
+    finally:
+        # Restore the local command tree without syncing it globally again.
+        for command in commands:
+            tree.add_command(command)
+
+    for guild in guilds:
         try:
-            bot.tree.copy_global_to(guild=guild)
-            guild_commands = await bot.tree.sync(guild=guild)
+            # Replace this guild's command set with exactly our current commands.
+            tree.clear_commands(guild=guild)
+            tree.copy_global_to(guild=guild)
+            guild_commands = await tree.sync(guild=guild)
             print(f"Guild sync: {guild.name} ({guild.id}) -> {len(guild_commands)} commands")
         except Exception as exc:
             print(f"Guild sync failed for {guild.id}: {exc}")

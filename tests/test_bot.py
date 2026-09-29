@@ -56,7 +56,7 @@ def test_command_descriptions_are_present():
 
 
 def test_bot_version():
-    assert bot.BOT_VERSION == "6.1.2"
+    assert bot.BOT_VERSION == "6.1.3"
 
 
 def test_max_crafts():
@@ -248,3 +248,76 @@ def test_clanbattle_choices():
     command = next(c for c in bot.bot.tree.get_commands() if c.name == "clanbattle")
     choices = command.parameters[0].choices
     assert {choice.value for choice in choices} == {"setup", "status", "stop", "now"}
+
+
+class FakeTree:
+    def __init__(self):
+        self.commands = [SimpleNamespace(name="status"), SimpleNamespace(name="league")]
+        self.global_sync_calls = 0
+        self.guild_sync_calls = []
+        self.cleared = []
+        self.copied = []
+
+    def get_commands(self):
+        return list(self.commands)
+
+    def clear_commands(self, guild=None):
+        self.cleared.append(guild)
+        if guild is None:
+            self.commands = []
+
+    async def sync(self, guild=None):
+        if guild is None:
+            self.global_sync_calls += 1
+            return []
+        self.guild_sync_calls.append(guild)
+        return list(self.commands)
+
+    def add_command(self, command):
+        self.commands.append(command)
+
+    def copy_global_to(self, guild):
+        self.copied.append(guild)
+
+
+def test_sync_strategy_deletes_global_and_syncs_guilds():
+    fake_tree = FakeTree()
+    fake_guild = SimpleNamespace(id=99, name="Test Guild")
+
+    run(bot.sync_commands_cleanly(tree=fake_tree, guilds=[fake_guild]))
+
+    assert fake_tree.global_sync_calls == 1
+    assert fake_tree.copied == [fake_guild]
+    assert fake_tree.guild_sync_calls == [fake_guild]
+    assert [c.name for c in fake_tree.commands] == ["status", "league"]
+
+
+def test_league_response_is_public(monkeypatch):
+    async def fake_search(query):
+        return [{"Name": "Test League", "Points": 5000, "ID": "L1"}]
+
+    async def fake_detail(name):
+        return {
+            "Name": "Test League", "Points": 5000, "ID": "L1",
+            "Owner": {"DisplayName": "Owner"},
+            "Members": [{"DisplayName": "Alice", "UserID": "1"}],
+            "MemberCapacity": 4,
+        }
+
+    async def fake_rank(*args, **kwargs):
+        return 5
+
+    monkeypatch.setattr(bot, "api_search_leagues", fake_search)
+    monkeypatch.setattr(bot, "api_get_league", fake_detail)
+    monkeypatch.setattr(bot, "api_get_league_rank", fake_rank)
+
+    interaction = FakeInteraction()
+    run(bot.league.callback(interaction, "Test"))
+
+    first = interaction.response.messages[0]
+    assert first.get("ephemeral", False) is False
+    embed = interaction.edits[-1]["embed"]
+    names_field = next(field for field in embed.fields if field.name == "👥 Player Names")
+    assert "Owner" in names_field.value
+    assert "Alice" in names_field.value
+    assert "UserID" not in names_field.value
